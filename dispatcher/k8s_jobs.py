@@ -14,6 +14,21 @@ def job_name(scan_id: str, project_path: str) -> str:
     return f"scan-{short_scan}-{path_hash}"
 
 
+# Vault Agent Injector renders this file inside the pod at
+# /vault/secrets/config; entrypoint.sh sources it before running snyk.
+VAULT_TEMPLATE = """\
+{{- with secret "secret/data/snyk-scanner/scan-job" }}
+export SNYK_TOKEN="{{ .Data.data.snyk_token }}"
+export RABBITMQ_URL="{{ .Data.data.rabbitmq_url }}"
+export S3_ENDPOINT="{{ .Data.data.s3_endpoint }}"
+export S3_BUCKET="{{ .Data.data.s3_bucket }}"
+export S3_ACCESS_KEY="{{ .Data.data.s3_access_key }}"
+export S3_SECRET_KEY="{{ .Data.data.s3_secret_key }}"
+export DATABASE_URL="{{ .Data.data.database_url }}"
+{{- end }}
+"""
+
+
 def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
               project_path: str, scan_types: list[str]) -> client.V1Job:
     name = job_name(scan_id, project_path)
@@ -25,24 +40,7 @@ def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
         client.V1EnvVar(name="GIT_REF", value=ref),
         client.V1EnvVar(name="PROJECT_PATH", value=project_path),
         client.V1EnvVar(name="SCAN_TYPES", value=",".join(scan_types)),
-        client.V1EnvVar(
-            name="SNYK_TOKEN",
-            value_from=client.V1EnvVarSource(
-                secret_key_ref=client.V1SecretKeySelector(
-                    name=Config.SNYK_TOKEN_SECRET_NAME, key="token"
-                )
-            ),
-        ),
-        client.V1EnvVar(
-            name="RABBITMQ_URL",
-            value_from=client.V1EnvVarSource(
-                secret_key_ref=client.V1SecretKeySelector(
-                    name=Config.RABBITMQ_SECRET_NAME, key="url"
-                )
-            ),
-        ),
     ]
-    env.extend(_s3_env())
 
     container = client.V1Container(
         name="scan",
@@ -57,6 +55,8 @@ def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
     pod_spec = client.V1PodSpec(
         containers=[container],
         restart_policy="Never",
+        image_pull_secrets=[client.V1LocalObjectReference(name="harbor-pull-secret")],
+        service_account_name="snyk-scan-job",
     )
 
     template = client.V1PodTemplateSpec(
@@ -65,7 +65,13 @@ def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
                 "app": "snyk-scan-job",
                 "scan-id": scan_id,
                 "project-path-hash": name.split("-")[-1],
-            }
+            },
+            annotations={
+                "vault.hashicorp.com/agent-inject": "true",
+                "vault.hashicorp.com/role": "snyk-scan-job",
+                "vault.hashicorp.com/agent-inject-secret-config": "secret/data/snyk-scanner/scan-job",
+                "vault.hashicorp.com/agent-inject-template-config": VAULT_TEMPLATE,
+            },
         ),
         spec=pod_spec,
     )
@@ -86,18 +92,6 @@ def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
         ),
         spec=spec,
     )
-
-
-def _s3_env() -> list[client.V1EnvVar]:
-    return [
-        client.V1EnvVar(
-            name=key,
-            value_from=client.V1EnvVarSource(
-                secret_key_ref=client.V1SecretKeySelector(name=Config.S3_SECRET_NAME, key=key)
-            ),
-        )
-        for key in ("S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY")
-    ]
 
 
 def create_job(batch_api: client.BatchV1Api, job: client.V1Job) -> None:

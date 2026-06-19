@@ -24,9 +24,9 @@ class Config:
     # internal infrastructure. Must be set explicitly; empty means "deny all".
     ALLOWED_GIT_HOSTS = _list_env("ALLOWED_GIT_HOSTS")
 
-    SNYK_TOKEN_SECRET_NAME = os.environ.get("SNYK_TOKEN_SECRET_NAME", "snyk-token")
-    RABBITMQ_SECRET_NAME = os.environ.get("RABBITMQ_SECRET_NAME", "rabbitmq-credentials")
-    S3_SECRET_NAME = os.environ.get("S3_SECRET_NAME", "scan-results-s3")
+    # RABBITMQ_URL / DATABASE_URL above, and SNYK_TOKEN / S3_* used by scan
+    # jobs, are supplied via Vault Agent Injector (see k8s/dispatcher-deployment.yaml
+    # and dispatcher/k8s_jobs.py VAULT_TEMPLATE) rather than K8s Secrets.
 
     CLONE_DEPTH = int(os.environ.get("CLONE_DEPTH", "1"))
     CLONE_TIMEOUT_SECONDS = int(os.environ.get("CLONE_TIMEOUT_SECONDS", "60"))

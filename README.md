@@ -15,8 +15,11 @@ Postgres, and publishes per-unit results plus one aggregate
   images; this is what actually runs `snyk test` / `snyk code test` /
   `snyk iac test` / `snyk container test` inside each Job.
 - `migrations/` — Postgres schema (`scans`, `scan_units`).
-- `k8s/` — namespace, RBAC, dispatcher Deployment, secret templates.
+- `k8s/` — namespace, RBAC, dispatcher Deployment, Vault policies.
 - `deploy/docker-compose.yml` — local RabbitMQ + Postgres + MinIO for dev.
+
+For deploying to real on-prem infra (Harbor, existing RabbitMQ/Postgres,
+on-prem S3, Vault), see `DEPLOY.md`.
 
 ## Local dev
 
@@ -40,7 +43,7 @@ docker build --build-arg BASE_TAG=node   -t snyk-scan-job:node   scanner/
 
 - DLQ wiring on `scan.requests` / `scan.results` (queue declarations with
   `x-dead-letter-exchange` need to be added at deploy time).
-- Per-org `SNYK_TOKEN` lookup (currently one shared secret).
+- Per-org `SNYK_TOKEN` lookup (currently one Vault path shared by all scan jobs).
 - Stuck-scan sweeper (a scan stuck `in_progress` past a timeout never
   self-heals yet).
 - Metrics/structured logging correlation by `scan_id`.

@@ -1,8 +1,11 @@
 #!/usr/bin/env sh
 set -eu
 
-# Required env: SCAN_ID, GIT_URL, GIT_REF, PROJECT_PATH, SCAN_TYPES (csv),
-#   SNYK_TOKEN, RABBITMQ_URL, S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY
+# SCAN_ID, GIT_URL, GIT_REF, PROJECT_PATH, SCAN_TYPES come from the Job's
+# env. SNYK_TOKEN, RABBITMQ_URL, DATABASE_URL, S3_* are rendered by the
+# Vault Agent Injector init container at /vault/secrets/config (see
+# dispatcher/k8s_jobs.py VAULT_TEMPLATE) and sourced here.
+. /vault/secrets/config
 
 WORKDIR="$(mktemp -d)"
 CLI_VERSION="$(snyk --version)"

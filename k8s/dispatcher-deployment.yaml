@@ -12,28 +12,34 @@ spec:
     metadata:
       labels:
         app: snyk-dispatcher
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "snyk-dispatcher"
+        # Renders a sourceable env file at /vault/secrets/config from the
+        # kv-v2 secret at secret/snyk-scanner/dispatcher (rabbitmq_url, database_url).
+        vault.hashicorp.com/agent-inject-secret-config: "secret/data/snyk-scanner/dispatcher"
+        vault.hashicorp.com/agent-inject-template-config: |
+          {{- with secret "secret/data/snyk-scanner/dispatcher" }}
+          export RABBITMQ_URL="{{ .Data.data.rabbitmq_url }}"
+          export DATABASE_URL="{{ .Data.data.database_url }}"
+          {{- end }}
     spec:
       serviceAccountName: snyk-dispatcher
+      imagePullSecrets:
+        - name: harbor-pull-secret
       containers:
         - name: dispatcher
-          image: ghcr.io/example/snyk-dispatcher:latest
+          image: harbor.internal.example.com/snyk-scanner/dispatcher:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - ". /vault/secrets/config && exec python3 main.py"
           env:
             - name: K8S_NAMESPACE
               value: snyk-scanner
             - name: JOB_IMAGE_PREFIX
-              value: ghcr.io/example/snyk-scan-job
+              value: harbor.internal.example.com/snyk-scanner/scan-job
             - name: ALLOWED_GIT_HOSTS
-              value: "github.com,gitlab.com"
-            - name: RABBITMQ_URL
-              valueFrom:
-                secretKeyRef:
-                  name: rabbitmq-credentials
-                  key: url
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: scan-db-credentials
-                  key: url
+              value: "git.internal.example.com"
           resources:
             requests:
               cpu: 100m
