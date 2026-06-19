@@ -1,8 +1,22 @@
 import hashlib
+import os
+from pathlib import Path
 
 from kubernetes import client
 
 from config import Config
+
+
+def load_env_local():
+    """Load environment variables from .env.local file if it exists."""
+    env_local_path = Path(__file__).parent.parent / ".env.local"
+    if env_local_path.exists():
+        with open(env_local_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    os.environ[key.strip()] = value.strip()
 
 
 def job_name(scan_id: str, project_path: str) -> str:
@@ -14,27 +28,33 @@ def job_name(scan_id: str, project_path: str) -> str:
     return f"scan-{short_scan}-{path_hash}"
 
 
-# Vault Agent Injector renders this file inside the pod at
-# /vault/secrets/config; entrypoint.sh sources it before running snyk.
-VAULT_TEMPLATE = """\
-{{- with secret "secret/data/snyk-scanner/scan-job" }}
-export SNYK_TOKEN="{{ .Data.data.snyk_token }}"
-export RABBITMQ_URL="{{ .Data.data.rabbitmq_url }}"
-export S3_ENDPOINT="{{ .Data.data.s3_endpoint }}"
-export S3_BUCKET="{{ .Data.data.s3_bucket }}"
-export S3_ACCESS_KEY="{{ .Data.data.s3_access_key }}"
-export S3_SECRET_KEY="{{ .Data.data.s3_secret_key }}"
-export DATABASE_URL="{{ .Data.data.database_url }}"
-{{- end }}
-"""
-
-
 def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
               project_path: str, scan_types: list[str], dependency_file: str = "") -> client.V1Job:
+    # Load environment variables from .env.local file
+    load_env_local()
+    
     name = job_name(scan_id, project_path)
-    image = f"{Config.JOB_IMAGE_PREFIX}:{image_tag}"
+    # For local testing, append -local suffix to image tags
+    local_image_tag = f"{image_tag}-local" if not image_tag.endswith("-local") else image_tag
+    # For kind, use the full image name with localhost/ prefix
+    # since images are loaded directly into the cluster with that name
+    image = f"localhost/snyk-scan-job:{local_image_tag}"
 
-    env = [
+    # Local testing environment variables (instead of Vault)
+    # For kind with services deployed in-cluster, use Kubernetes service names
+    snyk_token = os.environ.get("SNYK_TOKEN", "")
+    local_secrets = [
+        client.V1EnvVar(name="SNYK_TOKEN", value=snyk_token),
+        client.V1EnvVar(name="RABBITMQ_URL", value="amqp://guest:guest@rabbitmq:5672/"),
+        client.V1EnvVar(name="DATABASE_URL", value="postgresql://scanner:scanner@postgres:5432/snyk_scanner"),
+        client.V1EnvVar(name="S3_ENDPOINT", value="http://minio:9000"),
+        client.V1EnvVar(name="S3_BUCKET", value="snyk-scan-results"),
+        client.V1EnvVar(name="S3_ACCESS_KEY", value="minioadmin"),
+        client.V1EnvVar(name="S3_SECRET_KEY", value="minioadmin"),
+    ]
+
+    # Job-specific environment variables
+    job_env = [
         client.V1EnvVar(name="SCAN_ID", value=scan_id),
         client.V1EnvVar(name="GIT_URL", value=git_url),
         client.V1EnvVar(name="GIT_REF", value=ref),
@@ -42,6 +62,15 @@ def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
         client.V1EnvVar(name="SCAN_TYPES", value=",".join(scan_types)),
         client.V1EnvVar(name="DEPENDENCY_FILE", value=dependency_file),
     ]
+    # If a local self-signed git host genuinely needs TLS verification
+    # disabled, opt in explicitly via .env.local (GIT_SSL_NO_VERIFY=true) —
+    # don't default it on, since that's a MITM hole if it leaks into any
+    # non-local config.
+    if os.environ.get("GIT_SSL_NO_VERIFY"):
+        job_env.append(client.V1EnvVar(name="GIT_SSL_NO_VERIFY", value=os.environ["GIT_SSL_NO_VERIFY"]))
+
+    # Combine local secrets with job environment variables
+    env = local_secrets + job_env
 
     container = client.V1Container(
         name="scan",
@@ -56,8 +85,7 @@ def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
     pod_spec = client.V1PodSpec(
         containers=[container],
         restart_policy="Never",
-        image_pull_secrets=[client.V1LocalObjectReference(name="harbor-pull-secret")],
-        service_account_name="snyk-scan-job",
+        service_account_name="default",  # Use default service account for local testing
     )
 
     template = client.V1PodTemplateSpec(
@@ -66,12 +94,6 @@ def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
                 "app": "snyk-scan-job",
                 "scan-id": scan_id,
                 "project-path-hash": name.split("-")[-1],
-            },
-            annotations={
-                "vault.hashicorp.com/agent-inject": "true",
-                "vault.hashicorp.com/role": "snyk-scan-job",
-                "vault.hashicorp.com/agent-inject-secret-config": "secret/data/snyk-scanner/scan-job",
-                "vault.hashicorp.com/agent-inject-template-config": VAULT_TEMPLATE,
             },
         ),
         spec=pod_spec,

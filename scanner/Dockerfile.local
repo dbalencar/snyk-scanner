@@ -1,0 +1,23 @@
+# Build with --build-arg BASE_TAG=golang|node|python|maven|gradle|ruby|dotnet|php|linux
+ARG BASE_TAG=linux
+FROM snyk/snyk:${BASE_TAG}
+
+# Install Python dependencies using Debian/Ubuntu commands
+# Snyk images are Debian-based, not Alpine
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    git \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python packages
+RUN pip3 install --break-system-packages boto3 pika psycopg2-binary
+
+COPY entrypoint_local.sh /usr/local/bin/entrypoint.sh
+COPY upload_result.py /usr/local/bin/upload_result.py
+COPY summarize.py /usr/local/bin/summarize.py
+COPY publish_result.py /usr/local/bin/publish_result.py
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

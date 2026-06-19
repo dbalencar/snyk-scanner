@@ -7,19 +7,37 @@ one unit per project_path rather than one scan of the whole tree.
 import os
 from dataclasses import dataclass, field
 
-# Marker file -> (snyk job image tag, ecosystem label)
+# Marker file -> (snyk job image tag, priority). Every entry uses the same
+# shape so detect() doesn't need to branch on type. Priority picks the best
+# dependency file when several are present in one directory: lock files (3,
+# fully resolved) > manifests (2) > loose requirement files (1).
 SCA_MARKERS = {
-    "go.mod": "golang",
-    "package.json": "node",
-    "requirements.txt": "python",
-    "Pipfile": "python",
-    "pyproject.toml": "python",
-    "pom.xml": "maven",
-    "build.gradle": "gradle",
-    "build.gradle.kts": "gradle",
-    "Gemfile": "ruby",
-    "composer.json": "php",
+    # Python lock files (highest priority for dependency resolution)
+    "uv.lock": ("python", 3),
+    "poetry.lock": ("python", 3),
+    "Pipfile.lock": ("python", 3),
+
+    # Python manifest files
+    "pyproject.toml": ("python", 2),
+    "requirements.txt": ("python", 1),
+    "Pipfile": ("python", 1),
+    "setup.py": ("python", 1),
+    "setup.cfg": ("python", 1),
+
+    # Other ecosystems
+    "go.mod": ("golang", 2),
+    "package.json": ("node", 2),
+    "pom.xml": ("maven", 2),
+    "build.gradle": ("gradle", 2),
+    "build.gradle.kts": ("gradle", 2),
+    "Gemfile": ("ruby", 2),
+    "composer.json": ("php", 2),
 }
+
+# Dependency files Snyk's CLI can't read directly — the scan job must
+# convert them to a supported format before running `snyk test`.
+# See scanner/entrypoint.sh.
+UNSUPPORTED_BY_SNYK = {"uv.lock"}
 
 CSPROJ_SUFFIXES = (".csproj", ".sln")
 
@@ -39,6 +57,7 @@ class ProjectUnit:
     project_path: str          # relative to repo root, "" for root
     image_tag: str             # which snyk/snyk:<tag> base image to use
     scan_types: set = field(default_factory=set)  # subset of {sca, sast, iac, container}
+    dependency_file: str = ""  # specific dependency file detected for SCA
 
 
 def _has_csproj(files: list[str]) -> bool:
@@ -63,16 +82,26 @@ def detect(repo_root: str) -> list[ProjectUnit]:
         if depth >= MAX_DEPTH:
             dirnames[:] = []
 
-        image_tag = None
-        for marker, tag in SCA_MARKERS.items():
-            if marker in filenames:
-                image_tag = tag
-                break
+        # Find the best marker based on priority (highest wins; ties keep
+        # whichever was found first, which is fine since within a priority
+        # tier any match is equally valid for picking the image tag).
+        best_marker = None
+        best_tag = None
+        best_priority = 0
+
+        for marker, (tag, priority) in SCA_MARKERS.items():
+            if marker in filenames and priority > best_priority:
+                best_marker = marker
+                best_tag = tag
+                best_priority = priority
+
+        image_tag = best_tag
+        
         if image_tag is None and _has_csproj(filenames):
             image_tag = "dotnet"
 
         if image_tag is not None:
-            unit = units.setdefault(rel, ProjectUnit(project_path=rel, image_tag=image_tag))
+            unit = units.setdefault(rel, ProjectUnit(project_path=rel, image_tag=image_tag, dependency_file=best_marker or ""))
             unit.scan_types.add("sca")
             unit.scan_types.add("sast")
 

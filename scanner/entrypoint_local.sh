@@ -1,11 +1,10 @@
 #!/usr/bin/env sh
 set -eu
 
-# SCAN_ID, GIT_URL, GIT_REF, PROJECT_PATH, SCAN_TYPES come from the Job's
-# env. SNYK_TOKEN, RABBITMQ_URL, DATABASE_URL, S3_* are rendered by the
-# Vault Agent Injector init container at /vault/secrets/config (see
-# dispatcher/k8s_jobs.py VAULT_TEMPLATE) and sourced here.
-. /vault/secrets/config
+# Local testing version - environment variables are passed directly
+# instead of being sourced from Vault Agent Injector
+# SCAN_ID, GIT_URL, GIT_REF, PROJECT_PATH, SCAN_TYPES come from the Job's env
+# SNYK_TOKEN, RABBITMQ_URL, DATABASE_URL, S3_* are passed as env vars
 
 WORKDIR="$(mktemp -d)"
 CLI_VERSION="$(snyk --version)"
@@ -32,8 +31,7 @@ TARGET_DIR="$WORKDIR/repo/$PROJECT_PATH"
 cd "$TARGET_DIR"
 
 # Snyk's CLI doesn't read uv.lock directly; export it to requirements.txt
-# (a format Snyk fully supports) before running the sca scan. DEPENDENCY_FILE
-# is set by dispatcher/detector.py's marker-priority pick.
+# (a format Snyk fully supports) before running the sca scan.
 SCA_FILE_ARG=""
 if [ "${DEPENDENCY_FILE:-}" = "uv.lock" ]; then
   uv export --format requirements-txt --no-hashes -o requirements.txt
@@ -91,7 +89,7 @@ for SCAN_TYPE in $SCAN_TYPES; do
     --endpoint "$S3_ENDPOINT" --bucket "$S3_BUCKET" \
     --access-key "$S3_ACCESS_KEY" --secret-key "$S3_SECRET_KEY"
 
-  SUMMARY="$(python3 /usr/local/bin/summarize.py --file "$OUT_FILE" --scan-type "$SCAN_TYPE")"
+  SUMMARY="$(python3 /usr/local/bin/summarize.py --file "$OUT_FILE" --scan-type "$SCAN_TYPE" | python3 -c 'import sys, json; print(json.dumps(json.loads(sys.stdin.read())))')"
 
   publish_result "$SCAN_TYPE" "$STATUS" "$OBJECT_KEY" "$SUMMARY"
 done

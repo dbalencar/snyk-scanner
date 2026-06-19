@@ -7,8 +7,8 @@ from kubernetes import client, config as k8s_config
 
 import db
 import detector
-import git_utils
-import k8s_jobs
+import git_utils_local  # Use local version that allows file:// URLs
+import k8s_jobs_local  # Use local version without Vault
 from config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -35,7 +35,7 @@ def handle_message(ch, method, properties, body, batch_api, conn):
 
     clone_path = None
     try:
-        clone_path = git_utils.shallow_clone(git_url, ref)
+        clone_path = git_utils_local.shallow_clone(git_url, ref)
         units = detector.detect(clone_path)
 
         if not units:
@@ -50,7 +50,7 @@ def handle_message(ch, method, properties, body, batch_api, conn):
             for scan_type in unit.scan_types:
                 db.upsert_scan_unit_pending(conn, scan_id, unit.project_path, scan_type)
 
-            job = k8s_jobs.build_job(
+            job = k8s_jobs_local.build_job(
                 scan_id=scan_id,
                 git_url=git_url,
                 ref=ref,
@@ -59,13 +59,13 @@ def handle_message(ch, method, properties, body, batch_api, conn):
                 scan_types=sorted(unit.scan_types),
                 dependency_file=unit.dependency_file,
             )
-            k8s_jobs.create_job(batch_api, job)
+            k8s_jobs_local.create_job(batch_api, job)
             log.info("dispatched job for scan=%s path=%s types=%s",
                       scan_id, unit.project_path or "<root>", unit.scan_types)
 
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
-    except git_utils.DisallowedGitHostError as e:
+    except git_utils_local.DisallowedGitHostError as e:
         log.error("rejected scan %s: %s", scan_id, e)
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
     except Exception:
@@ -73,14 +73,19 @@ def handle_message(ch, method, properties, body, batch_api, conn):
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
     finally:
         if clone_path:
-            git_utils.cleanup(clone_path)
+            git_utils_local.cleanup(clone_path)
 
 
 def main():
     if not Config.ALLOWED_GIT_HOSTS:
         log.warning("ALLOWED_GIT_HOSTS is empty; all scan requests will be rejected")
 
-    k8s_config.load_incluster_config()
+    # Use local kubeconfig for testing outside cluster
+    try:
+        k8s_config.load_incluster_config()
+    except:
+        k8s_config.load_kube_config(context="kind-snyk-scanner-local")
+    
     batch_api = client.BatchV1Api()
     conn = db.get_conn()
 
