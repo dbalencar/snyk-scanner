@@ -1,0 +1,17 @@
+# Namespace eventus already exists and is managed outside this repo — no
+# Namespace object here, since we only have namespace-scoped access, not
+# cluster access. Apply this only if your namespace-admin role permits
+# creating ResourceQuota; if quota is already centrally managed for
+# eventus, skip this file entirely.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: scan-jobs-quota
+  namespace: eventus
+spec:
+  hard:
+    pods: "50"
+    requests.cpu: "20"
+    requests.memory: 20Gi
+    limits.cpu: "40"
+    limits.memory: 40Gi

@@ -13,7 +13,7 @@ class Config:
 
     DATABASE_URL = os.environ["DATABASE_URL"]
 
-    K8S_NAMESPACE = os.environ.get("K8S_NAMESPACE", "snyk-scanner")
+    K8S_NAMESPACE = os.environ.get("K8S_NAMESPACE", "eventus")
     JOB_IMAGE_PREFIX = os.environ.get("JOB_IMAGE_PREFIX", "ghcr.io/example/snyk-scan-job")
     JOB_TTL_SECONDS_AFTER_FINISHED = int(os.environ.get("JOB_TTL_SECONDS_AFTER_FINISHED", "3600"))
     JOB_BACKOFF_LIMIT = int(os.environ.get("JOB_BACKOFF_LIMIT", "1"))

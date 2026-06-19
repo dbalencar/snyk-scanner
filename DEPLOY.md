@@ -27,7 +27,7 @@ done
 
 ```sh
 kubectl create secret docker-registry harbor-pull-secret \
-  --namespace snyk-scanner \
+  --namespace eventus \
   --docker-server=harbor.internal.example.com \
   --docker-username=<robot-account> \
   --docker-password=<robot-account-token>
@@ -36,21 +36,30 @@ kubectl create secret docker-registry harbor-pull-secret \
 Use a Harbor robot account scoped to pull-only on the `snyk-scanner` project,
 not a personal account.
 
-## 3. Namespace, RBAC, quota
+## 3. RBAC and quota (namespace `eventus`, no cluster access)
+
+We only have access to the `eventus` namespace — no cluster-scoped
+permissions. There's no `Namespace` object to apply (it already exists
+and is managed elsewhere), and every manifest in `k8s/` is intentionally
+namespace-scoped (`Role`/`RoleBinding`, never `ClusterRole`/`ClusterRoleBinding`).
 
 ```sh
-kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/rbac.yaml
+kubectl apply -f k8s/resourcequota.yaml   # only if your namespace role permits creating ResourceQuota
 ```
 
+If `kubectl apply -f k8s/resourcequota.yaml` fails with a permissions
+error, the quota is likely centrally managed for `eventus` already —
+skip it and move on.
+
 `k8s/rbac.yaml` only grants the `snyk-dispatcher` ServiceAccount Job
-create/get/list/watch/delete within the `snyk-scanner` namespace — it has
+create/get/list/watch/delete within the `eventus` namespace — it has
 no cluster-wide permissions. Also create the `snyk-scan-job` ServiceAccount
 referenced by `dispatcher/k8s_jobs.py` (Jobs run under their own identity,
 distinct from the dispatcher's, so each gets only the Vault role it needs):
 
 ```sh
-kubectl create serviceaccount snyk-scan-job -n snyk-scanner
+kubectl create serviceaccount snyk-scan-job -n eventus
 ```
 
 ## 4. Vault: policies, roles, and secrets
@@ -75,13 +84,13 @@ EOF
 
 vault write auth/kubernetes/role/snyk-dispatcher \
   bound_service_account_names=snyk-dispatcher \
-  bound_service_account_namespaces=snyk-scanner \
+  bound_service_account_namespaces=eventus \
   policies=snyk-dispatcher \
   ttl=1h
 
 vault write auth/kubernetes/role/snyk-scan-job \
   bound_service_account_names=snyk-scan-job \
-  bound_service_account_namespaces=snyk-scanner \
+  bound_service_account_namespaces=eventus \
   policies=snyk-scan-job \
   ttl=30m   # short — scan jobs are short-lived, no reason to mint long-lived tokens
 ```
@@ -111,10 +120,12 @@ the other's surface). Provisioning those users/grants in RabbitMQ and
 Postgres is on you per "already provisioned" — just make sure they're
 actually separate principals, not the same shared user reused twice.
 
-Confirm the Vault Agent Injector webhook is active in `snyk-scanner`
-(it usually is cluster-wide already, but namespaces can be excluded by
-label — check `vault-agent-injector-config` MutatingWebhookConfiguration
-if injection silently doesn't happen).
+The Vault Agent Injector's `MutatingWebhookConfiguration` is a cluster-scoped
+object we can't inspect without cluster access. If injection silently
+doesn't happen (no `vault-agent` init/sidecar container shows up on `kubectl
+describe pod`), ask whoever manages the cluster whether `eventus` is
+excluded from injection by namespace label (`vault.hashicorp.com/agent-inject`
+selector / namespace-exclude annotations on the injector itself).
 
 ## 5. RabbitMQ: queues and DLQ
 
@@ -136,7 +147,7 @@ service should use.
 
 ```sh
 kubectl apply -f k8s/dispatcher-deployment.yaml
-kubectl -n snyk-scanner rollout status deployment/snyk-dispatcher
+kubectl -n eventus rollout status deployment/snyk-dispatcher
 ```
 
 ## 8. Smoke test
@@ -146,8 +157,8 @@ Publish a message to `scan.requests` against a repo on a host listed in
 manifest — change to your real internal Git host(s)), then watch:
 
 ```sh
-kubectl -n snyk-scanner get jobs -w
-kubectl -n snyk-scanner logs -l app=snyk-dispatcher -f
+kubectl -n eventus get jobs -w
+kubectl -n eventus logs -l app=snyk-dispatcher -f
 ```
 
 A Job should appear per detected project path, and a `scan.completed`
