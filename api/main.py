@@ -112,6 +112,10 @@ def create_scan(body: ScanRequest) -> dict:
             params = pika.URLParameters(os.environ["RABBITMQ_URL"])
             mq = pika.BlockingConnection(params)
             ch = mq.channel()
+            ch.queue_declare(
+                queue=os.environ.get("REQUEST_QUEUE", "scan.requests"),
+                durable=True,
+            )
             ch.basic_publish(
                 exchange="",
                 routing_key=os.environ.get("REQUEST_QUEUE", "scan.requests"),
