@@ -79,34 +79,40 @@ class TestInjectToken(unittest.TestCase):
 class TestBuildJobWiresGitToken(unittest.TestCase):
     """Verify build_job passes GIT_TOKEN to the Pod so the entrypoint can use it."""
 
-    def setUp(self):
-        os.environ.setdefault("K8S_NAMESPACE", "default")
-        os.environ.setdefault("JOB_IMAGE_PREFIX", "localhost/snyk-scan-job")
-        os.environ.setdefault("JOB_TTL_SECONDS_AFTER_FINISHED", "3600")
-        os.environ.setdefault("JOB_BACKOFF_LIMIT", "1")
-        os.environ.setdefault("JOB_ACTIVE_DEADLINE_SECONDS", "1800")
-        os.environ["GIT_TOKEN"] = "test-token-xyz"
-
     def test_git_token_env_var_in_pod(self):
-        # reload config so it picks up the env var we just set
         import importlib
-        import config as cfg_mod
-        importlib.reload(cfg_mod)
-        import k8s_jobs_local
-        importlib.reload(k8s_jobs_local)
+        from unittest.mock import patch, MagicMock
 
-        job = k8s_jobs_local.build_job(
-            scan_id="test-scan",
-            git_url="https://gitlab.dell.com/org/repo.git",
-            ref="main",
-            image_tag="python",
-            project_path="",
-            scan_types=["sca"],
-        )
+        env_overrides = {
+            "GIT_TOKEN": "test-token-xyz",
+            "K8S_NAMESPACE": "default",
+            "JOB_IMAGE_PREFIX": "localhost/snyk-scan-job",
+            "JOB_TTL_SECONDS_AFTER_FINISHED": "3600",
+            "JOB_BACKOFF_LIMIT": "1",
+            "JOB_ACTIVE_DEADLINE_SECONDS": "1800",
+            "ALLOWED_GIT_HOSTS": "github.com",
+            "SNYK_TOKEN": "",
+        }
+        with patch.dict(os.environ, env_overrides):
+            import config as cfg_mod
+            importlib.reload(cfg_mod)
+            import k8s_jobs_local
+            importlib.reload(k8s_jobs_local)
+            # Patch load_env_local AFTER reload so .env.local can't clobber GIT_TOKEN
+            with patch.object(k8s_jobs_local, "load_env_local"):
+                job = k8s_jobs_local.build_job(
+                    scan_id="test-scan",
+                    git_url="https://gitlab.dell.com/org/repo.git",
+                    ref="main",
+                    image_tag="python",
+                    project_path="",
+                    scan_types=["sca"],
+                )
+
         container = job.spec.template.spec.containers[0]
-        env_names = {e.name: e.value for e in container.env}
-        self.assertIn("GIT_TOKEN", env_names)
-        self.assertEqual(env_names["GIT_TOKEN"], "test-token-xyz")
+        env_map = {e.name: e.value for e in container.env}
+        self.assertIn("GIT_TOKEN", env_map)
+        self.assertEqual(env_map["GIT_TOKEN"], "test-token-xyz")
 
 
 if __name__ == "__main__":

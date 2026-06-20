@@ -22,7 +22,7 @@ publish_result() {
     --scan-type "$1" \
     --status "$2" \
     --object-key "${3:-}" \
-    --summary "${4:-{}}" \
+    --summary "${4}" \
     --cli-version "$CLI_VERSION"
 }
 

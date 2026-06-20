@@ -35,7 +35,7 @@ def publish(channel, queue: str, payload: dict):
 
 def main():
     args = parse_args()
-    summary = json.loads(args.summary)
+    summary = json.loads(args.summary or "{}")
     now = datetime.now(timezone.utc).isoformat()
 
     conn = psycopg2.connect(os.environ["DATABASE_URL"])

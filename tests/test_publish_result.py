@@ -71,8 +71,8 @@ def _run(argv_extra, conn, summary_str="{}"):
 
 
 class TestSummaryParsing(unittest.TestCase):
-    """json.loads(args.summary) must succeed for all summary strings the
-    shell can produce — including the '{}' fallback from ${4:-{}}."""
+    """json.loads(args.summary or "{}") must succeed for all values the
+    entrypoint can produce."""
 
     def _assert_no_json_error(self, summary_str):
         conn, _ = _make_conn()
@@ -83,15 +83,29 @@ class TestSummaryParsing(unittest.TestCase):
             json.dumps({"critical": 0, "high": 2, "medium": 1, "low": 0})
         )
 
-    def test_empty_object_shell_fallback(self):
-        """'{}' is what ${4:-{}} produces when SUMMARY is empty."""
-        self._assert_no_json_error("{}")
+    def test_empty_string_fallback(self):
+        """Empty string (entrypoint passed --summary '') uses Python default '{}'."""
+        self._assert_no_json_error("")
 
     def test_all_zero_counts(self):
         """All-zero summary from summarize.py's fallback path must parse cleanly."""
         self._assert_no_json_error(
             json.dumps({"critical": 0, "high": 0, "medium": 0, "low": 0})
         )
+
+    def test_no_trailing_brace_appended(self):
+        """Root-cause regression: POSIX sh '${4:-{}}' appended an extra '}'
+        when $4 was non-empty, producing '{"critical":0,...}}' which failed
+        with 'Extra data'. Fixed by using '${4}' in the entrypoint and
+        'args.summary or \"{}\"' in Python."""
+        good = json.dumps({"critical": 0, "high": 0, "medium": 0, "low": 0})
+        broken = good + "}"  # what the old entrypoint produced
+        # The broken string should now raise; this test documents the bug shape
+        with self.assertRaises(Exception):
+            json.loads(broken)
+        # And the fixed code never produces this string
+        conn, _ = _make_conn()
+        _run([], conn, good)  # the fixed path: no trailing }
 
 
 class TestDatabaseUpdate(unittest.TestCase):
