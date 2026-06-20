@@ -19,6 +19,7 @@ def job_name(scan_id: str, project_path: str) -> str:
 VAULT_TEMPLATE = """\
 {{- with secret "secret/data/snyk-scanner/scan-job" }}
 export SNYK_TOKEN="{{ .Data.data.snyk_token }}"
+export GIT_TOKEN="{{ .Data.data.git_token }}"
 export RABBITMQ_URL="{{ .Data.data.rabbitmq_url }}"
 export S3_ENDPOINT="{{ .Data.data.s3_endpoint }}"
 export S3_BUCKET="{{ .Data.data.s3_bucket }}"

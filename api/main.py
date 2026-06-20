@@ -42,6 +42,15 @@ def _db_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 
+def _ssh_to_https(git_url: str) -> str:
+    """Convert scp-style SSH URL to HTTPS. No-op for already-HTTPS URLs."""
+    if git_url.startswith("git@"):
+        rest = git_url[4:]
+        host, path = rest.split(":", 1)
+        return f"https://{host}/{path}"
+    return git_url
+
+
 def _assert_host_allowed(git_url: str) -> None:
     """Reject URLs whose hostname is not in ALLOWED_GIT_HOSTS (SSRF guard)."""
     allowed = [h.strip() for h in os.environ.get("ALLOWED_GIT_HOSTS", "").split(",") if h.strip()]
@@ -88,11 +97,14 @@ def create_scan(body: ScanRequest) -> dict:
     immediately. Poll GET /scan?id=<id> for status updates.
     """
     scan_id = str(uuid.uuid4())
+    # Normalise SSH to HTTPS before storing or publishing — the stored URL is
+    # always HTTPS; the token is injected at clone time by the dispatcher/Pod.
+    git_url = _ssh_to_https(body.gitUrl)
     conn = _db_conn()
     try:
         # SSRF guard — reject disallowed hosts before touching the DB
         try:
-            _assert_host_allowed(body.gitUrl)
+            _assert_host_allowed(git_url)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
@@ -103,7 +115,7 @@ def create_scan(body: ScanRequest) -> dict:
                 INSERT INTO scans (scan_id, git_url, ref, status, expected_units)
                 VALUES (%s, %s, %s, 'pending', 0)
                 """,
-                (scan_id, body.gitUrl, body.ref),
+                (scan_id, git_url, body.ref),
             )
         conn.commit()
 
@@ -121,7 +133,7 @@ def create_scan(body: ScanRequest) -> dict:
                 routing_key=os.environ.get("REQUEST_QUEUE", "scan.requests"),
                 body=json.dumps({
                     "scan_id": scan_id,
-                    "git_url": body.gitUrl,
+                    "git_url": git_url,
                     "ref": body.ref,
                 }),
                 properties=pika.BasicProperties(
@@ -138,13 +150,13 @@ def create_scan(body: ScanRequest) -> dict:
                 )
             conn.commit()
             return _row_to_response({
-                "scan_id": scan_id, "git_url": body.gitUrl, "ref": body.ref,
+                "scan_id": scan_id, "git_url": git_url, "ref": body.ref,
                 "commit_sha": None, "status": "failed",
                 "error": f"Failed to queue scan: {exc}",
             })
 
         return _row_to_response({
-            "scan_id": scan_id, "git_url": body.gitUrl, "ref": body.ref,
+            "scan_id": scan_id, "git_url": git_url, "ref": body.ref,
             "commit_sha": None, "status": "pending",
         })
     finally:

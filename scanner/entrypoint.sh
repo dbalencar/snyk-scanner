@@ -27,7 +27,16 @@ publish_result() {
     --cli-version "$CLI_VERSION"
 }
 
-git clone --depth 1 --branch "$GIT_REF" --single-branch "$GIT_URL" "$WORKDIR/repo"
+# Inject GIT_TOKEN into the clone URL at runtime so the token never appears
+# in the Job spec, stored URLs, or logs (entrypoint has no set -x).
+CLONE_URL="$GIT_URL"
+if [ -n "${GIT_TOKEN:-}" ]; then
+    case "$GIT_URL" in
+        https://*@*) ;;                           # already has credentials
+        https://*) CLONE_URL="https://oauth2:${GIT_TOKEN}@${GIT_URL#https://}" ;;
+    esac
+fi
+git clone --depth 1 --branch "$GIT_REF" --single-branch "$CLONE_URL" "$WORKDIR/repo"
 TARGET_DIR="$WORKDIR/repo/$PROJECT_PATH"
 cd "$TARGET_DIR"
 

@@ -19,6 +19,10 @@ export JOB_TTL_SECONDS_AFTER_FINISHED=3600
 export JOB_BACKOFF_LIMIT=1
 export JOB_ACTIVE_DEADLINE_SECONDS=1800
 
+# Personal access token for authenticated HTTPS git clones (GitLab, GitHub, etc.)
+# Required for private repos. Never commit the actual value.
+export GIT_TOKEN=
+
 # Git cloning configuration
 export CLONE_DEPTH=1
 export CLONE_TIMEOUT_SECONDS=60

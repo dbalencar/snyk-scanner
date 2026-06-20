@@ -24,7 +24,7 @@ def handle_message(ch, method, properties, body, batch_api, conn):
         return
 
     scan_id = msg.get("scan_id") or str(uuid.uuid4())
-    git_url = msg["git_url"]
+    git_url = git_utils_local.ssh_to_https(msg["git_url"])
     ref = msg.get("ref", "main")
     org_id = msg.get("org_id")
 

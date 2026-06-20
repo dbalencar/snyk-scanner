@@ -28,5 +28,9 @@ class Config:
     # jobs, are supplied via Vault Agent Injector (see k8s/dispatcher-deployment.yaml
     # and dispatcher/k8s_jobs.py VAULT_TEMPLATE) rather than K8s Secrets.
 
+    # Personal access token for authenticated HTTPS git clones.
+    # Never embed in a URL that gets logged or stored — inject at clone time only.
+    GIT_TOKEN = os.environ.get("GIT_TOKEN", "")
+
     CLONE_DEPTH = int(os.environ.get("CLONE_DEPTH", "1"))
     CLONE_TIMEOUT_SECONDS = int(os.environ.get("CLONE_TIMEOUT_SECONDS", "60"))

@@ -155,6 +155,22 @@ class TestCreateScan(unittest.TestCase):
         published = json.loads(channel.basic_publish.call_args.kwargs["body"])
         self.assertEqual(published["ref"], "main")
 
+    def test_ssh_url_converted_to_https(self):
+        """SSH URLs must be converted before storing and publishing."""
+        resp, _, cursor, channel = self._post(
+            git_url="git@github.com:octocat/Hello-World.git"
+        )
+        body = resp.json()
+        self.assertEqual(body["gitUrl"], "https://github.com/octocat/Hello-World.git")
+
+        published = json.loads(channel.basic_publish.call_args.kwargs["body"])
+        self.assertEqual(published["git_url"], "https://github.com/octocat/Hello-World.git")
+
+        insert_sql = str([c for c in cursor.execute.call_args_list
+                          if "INSERT INTO scans" in str(c)][0])
+        self.assertIn("https://github.com", insert_sql)
+        self.assertNotIn("git@", insert_sql)
+
 
 # ---------------------------------------------------------------------------
 # GET /scan

@@ -43,8 +43,10 @@ def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
     # Local testing environment variables (instead of Vault)
     # For kind with services deployed in-cluster, use Kubernetes service names
     snyk_token = os.environ.get("SNYK_TOKEN", "")
+    git_token = os.environ.get("GIT_TOKEN", "")
     local_secrets = [
         client.V1EnvVar(name="SNYK_TOKEN", value=snyk_token),
+        client.V1EnvVar(name="GIT_TOKEN", value=git_token),
         client.V1EnvVar(name="RABBITMQ_URL", value="amqp://guest:guest@rabbitmq:5672/"),
         client.V1EnvVar(name="DATABASE_URL", value="postgresql://scanner:scanner@postgres:5432/snyk_scanner"),
         client.V1EnvVar(name="S3_ENDPOINT", value="http://minio:9000"),

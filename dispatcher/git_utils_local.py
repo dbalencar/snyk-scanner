@@ -1,6 +1,6 @@
 import shutil
 import tempfile
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import git
 
@@ -9,6 +9,27 @@ from config import Config
 
 class DisallowedGitHostError(Exception):
     pass
+
+
+def ssh_to_https(git_url: str) -> str:
+    """Convert scp-style SSH URL to HTTPS. No-op for file:// and HTTPS URLs."""
+    if git_url.startswith("git@"):
+        rest = git_url[4:]
+        host, path = rest.split(":", 1)
+        return f"https://{host}/{path}"
+    return git_url
+
+
+def _inject_token(git_url: str, token: str) -> str:
+    if not token or not git_url.startswith("https://"):
+        return git_url
+    parsed = urlparse(git_url)
+    if parsed.username:
+        return git_url
+    netloc = f"oauth2:{token}@{parsed.hostname}"
+    if parsed.port:
+        netloc += f":{parsed.port}"
+    return urlunparse(parsed._replace(netloc=netloc))
 
 
 def assert_host_allowed(git_url: str) -> None:
@@ -40,11 +61,12 @@ def shallow_clone(git_url: str, ref: str) -> str:
     Caller is responsible for cleaning up the returned directory.
     """
     assert_host_allowed(git_url)
+    clone_url = _inject_token(git_url, Config.GIT_TOKEN)
 
     dest = tempfile.mkdtemp(prefix="scan-clone-")
     try:
         repo = git.Repo.clone_from(
-            git_url,
+            clone_url,
             dest,
             depth=Config.CLONE_DEPTH,
             branch=ref,
