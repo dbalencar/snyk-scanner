@@ -3,3 +3,6 @@ __pycache__/
 .env
 .env.local
 /kind
+.vscode/
+# Dell corporate CA cert — obtain from internal CA store; do not commit
+scanner/custom.crt

@@ -62,12 +62,6 @@ def build_job(scan_id: str, git_url: str, ref: str, image_tag: str,
         client.V1EnvVar(name="SCAN_TYPES", value=",".join(scan_types)),
         client.V1EnvVar(name="DEPENDENCY_FILE", value=dependency_file),
     ]
-    # If a local self-signed git host genuinely needs TLS verification
-    # disabled, opt in explicitly via .env.local (GIT_SSL_NO_VERIFY=true) —
-    # don't default it on, since that's a MITM hole if it leaks into any
-    # non-local config.
-    if os.environ.get("GIT_SSL_NO_VERIFY"):
-        job_env.append(client.V1EnvVar(name="GIT_SSL_NO_VERIFY", value=os.environ["GIT_SSL_NO_VERIFY"]))
 
     # Combine local secrets with job environment variables
     env = local_secrets + job_env

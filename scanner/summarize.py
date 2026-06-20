@@ -7,12 +7,15 @@ import json
 SEVERITIES = ("critical", "high", "medium", "low")
 
 
-def summarize_sca_or_iac(data: dict) -> dict:
+def summarize_sca_or_iac(data) -> dict:
     counts = {s: 0 for s in SEVERITIES}
-    for vuln in data.get("vulnerabilities", []):
-        sev = vuln.get("severity")
-        if sev in counts:
-            counts[sev] += 1
+    # snyk test --json returns an array when multiple projects are detected in one directory
+    items = data if isinstance(data, list) else [data]
+    for item in items:
+        for vuln in (item.get("vulnerabilities", []) if isinstance(item, dict) else []):
+            sev = vuln.get("severity")
+            if sev in counts:
+                counts[sev] += 1
     return counts
 
 
@@ -38,7 +41,7 @@ def main():
     try:
         with open(args.file) as f:
             data = json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError):
+    except Exception:
         print(json.dumps({s: 0 for s in SEVERITIES}))
         return
 

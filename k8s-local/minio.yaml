@@ -55,3 +55,27 @@ spec:
     port: 9001
     targetPort: 9001
   type: ClusterIP
+---
+# Creates the snyk-scan-results bucket on first deploy.
+# Waits for the MinIO API to be ready before running mc mb.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-create-bucket
+  namespace: default
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: mc
+        image: minio/mc:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until mc alias set local http://minio:9000 minioadmin minioadmin; do
+            echo "waiting for MinIO..."; sleep 2
+          done
+          mc mb --ignore-existing local/snyk-scan-results
+  backoffLimit: 5

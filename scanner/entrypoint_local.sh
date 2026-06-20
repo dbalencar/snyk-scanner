@@ -26,12 +26,19 @@ publish_result() {
     --cli-version "$CLI_VERSION"
 }
 
+# For local testing with private GitLab instances, use custom certificate
+# The custom.crt file is installed in the system CA store by the Dockerfile
+# Configure git to use the system certificate store
+export GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
+
 git clone --depth 1 --branch "$GIT_REF" --single-branch "$GIT_URL" "$WORKDIR/repo"
 TARGET_DIR="$WORKDIR/repo/$PROJECT_PATH"
 cd "$TARGET_DIR"
 
 # Snyk's CLI doesn't read uv.lock directly; export it to requirements.txt
 # (a format Snyk fully supports) before running the sca scan.
+# UV_NATIVE_TLS=true is set in the Dockerfile, so uv will use the system
+# certificate store which includes the custom Dell certificate.
 SCA_FILE_ARG=""
 if [ "${DEPENDENCY_FILE:-}" = "uv.lock" ]; then
   uv export --format requirements-txt --no-hashes -o requirements.txt
@@ -89,7 +96,7 @@ for SCAN_TYPE in $SCAN_TYPES; do
     --endpoint "$S3_ENDPOINT" --bucket "$S3_BUCKET" \
     --access-key "$S3_ACCESS_KEY" --secret-key "$S3_SECRET_KEY"
 
-  SUMMARY="$(python3 /usr/local/bin/summarize.py --file "$OUT_FILE" --scan-type "$SCAN_TYPE" | python3 -c 'import sys, json; print(json.dumps(json.loads(sys.stdin.read())))')"
+  SUMMARY="$(python3 /usr/local/bin/summarize.py --file "$OUT_FILE" --scan-type "$SCAN_TYPE")"
 
   publish_result "$SCAN_TYPE" "$STATUS" "$OBJECT_KEY" "$SUMMARY"
 done

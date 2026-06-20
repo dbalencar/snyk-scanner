@@ -11,8 +11,19 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python packages
-RUN pip3 install --break-system-packages boto3 pika psycopg2-binary
+# Copy and install custom Dell certificate for SSL verification
+# This must be done BEFORE pip install so pip can use the certificate
+COPY custom.crt /usr/local/share/ca-certificates/custom.crt
+RUN update-ca-certificates
+
+# Configure uv to use native TLS (OpenSSL) which reads the system certificate store
+# uv uses rustls by default and ignores the system CA store.
+# UV_SYSTEM_CERTS=true switches it to the OS native TLS stack, which reads
+# /etc/ssl/certs/ca-certificates.crt (populated above by update-ca-certificates).
+ENV UV_SYSTEM_CERTS=true
+
+# Install Python packages (now with proper SSL certificate support)
+RUN pip3 install --break-system-packages boto3 pika psycopg2-binary uv
 
 COPY entrypoint_local.sh /usr/local/bin/entrypoint.sh
 COPY upload_result.py /usr/local/bin/upload_result.py
