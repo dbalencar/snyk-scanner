@@ -28,7 +28,7 @@ def handle_message(ch, method, properties, body, batch_api, conn):
     ref = msg.get("ref", "main")
     org_id = msg.get("org_id")
 
-    if db.scan_exists(conn, scan_id):
+    if db.scan_already_dispatched(conn, scan_id):
         log.info("scan %s already dispatched, skipping (dedup)", scan_id)
         ch.basic_ack(delivery_tag=method.delivery_tag)
         return
@@ -36,15 +36,18 @@ def handle_message(ch, method, properties, body, batch_api, conn):
     clone_path = None
     try:
         clone_path = git_utils.shallow_clone(git_url, ref)
+        commit_sha = git_utils.get_commit_sha(clone_path)
         units = detector.detect(clone_path)
 
         if not units:
             log.warning("no recognizable project stacks found for scan %s", scan_id)
             db.create_scan(conn, scan_id, git_url, ref, org_id, expected_units=0)
+            db.set_scan_commit_sha(conn, scan_id, commit_sha)
             ch.basic_ack(delivery_tag=method.delivery_tag)
             return
 
         db.create_scan(conn, scan_id, git_url, ref, org_id, expected_units=len(units))
+        db.set_scan_commit_sha(conn, scan_id, commit_sha)
 
         for unit in units:
             for scan_type in unit.scan_types:

@@ -53,5 +53,12 @@ def shallow_clone(git_url: str, ref: str) -> str:
     return dest
 
 
+def get_commit_sha(clone_path: str) -> str:
+    repo = git.Repo(clone_path)
+    sha = repo.head.commit.hexsha
+    repo.close()
+    return sha
+
+
 def cleanup(path: str) -> None:
     shutil.rmtree(path, ignore_errors=True)
